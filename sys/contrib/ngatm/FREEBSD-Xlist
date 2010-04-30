@@ -1,0 +1,15 @@
+#$FreeBSD: src/sys/contrib/ngatm/FREEBSD-Xlist,v 1.1.32.1 2010/02/10 00:26:20 kensmith Exp $
+*/README
+*/VERSION
+*/Makefile.in
+*/Makefile.pre
+*/Makefile.post
+*/aclocal.m4
+*/config
+*/configure
+*/configure.ac
+*/libngatm
+*/man
+*/snmp_atm
+*/snmp_ilmid
+*/sscop
