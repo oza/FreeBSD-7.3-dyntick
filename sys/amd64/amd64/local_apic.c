@@ -66,6 +66,8 @@ __FBSDID("$FreeBSD: src/sys/amd64/amd64/local_apic.c,v 1.42.2.7.2.1 2010/02/10 0
 #include <ddb/ddb.h>
 #endif
 
+#include <sys/dynticks.h>
+
 #ifdef KDTRACE_HOOKS
 #include <sys/dtrace_bsd.h>
 cyclic_clock_func_t	lapic_cyclic_clock_func[MAXCPU];
@@ -109,6 +111,9 @@ struct lapic {
 	u_long la_hard_ticks;
 	u_long la_stat_ticks;
 	u_long la_prof_ticks;
+	u_long la_last_tick;
+	u_long la_cur_skip;
+	u_long la_skip;
 } static lapics[MAX_APIC_ID + 1];
 
 /* XXX: should thermal be an NMI? */
@@ -142,6 +147,9 @@ static u_int32_t lapic_timer_divisors[] = {
 	APIC_TDCR_32, APIC_TDCR_64, APIC_TDCR_128
 };
 
+
+static void (*timer_handler)(struct trapframe *frame);
+
 extern inthand_t IDTVEC(rsvd);
 
 volatile lapic_t *lapic;
@@ -155,6 +163,9 @@ static void	lapic_timer_oneshot(u_int count);
 static void	lapic_timer_periodic(u_int count);
 static void	lapic_timer_set_divisor(u_int divisor);
 static uint32_t	lvt_mode(struct lapic *la, u_int pin, uint32_t value);
+
+static void	lapic_handle_timer_dynamically(struct trapframe *frame);
+static void	__lapic_handle_timer(struct trapframe *frame);
 
 struct pic lapic_pic = { .pic_resume = lapic_resume };
 
@@ -212,6 +223,8 @@ lapic_init(vm_paddr_t addr)
 	lapic = pmap_mapdev(addr, sizeof(lapic_t));
 	lapic_paddr = addr;
 	setidt(APIC_SPURIOUS_INT, IDTVEC(spuriousint), SDT_SYSIGT, SEL_KPL, 0);
+
+	timer_handler = __lapic_handle_timer;
 
 	/* Perform basic initialization of the BSP's local APIC. */
 	lapic_enable();
@@ -738,6 +751,12 @@ lapic_handle_intr(int vector, struct trapframe *frame)
 void
 lapic_handle_timer(struct trapframe *frame)
 {
+	timer_handler(frame);
+}
+
+static void
+__lapic_handle_timer(struct trapframe *frame)
+{
 	struct lapic *la;
 
 	/* Send EOI first thing. */
@@ -799,6 +818,10 @@ lapic_handle_timer(struct trapframe *frame)
 		if (profprocs != 0)
 			profclock(TRAPF_USERMODE(frame), TRAPF_PC(frame));
 	}
+
+	la->la_cur_skip = 0;
+	la->la_skip = 1;
+
 	critical_exit();
 }
 
@@ -1325,3 +1348,112 @@ lapic_ipi_vectored(u_int vector, int dest)
 #endif /* DETECT_DEADLOCK */
 }
 #endif /* SMP */
+
+static void set_next_timer_interrupt(void)
+{
+	struct lapic *la;
+	int skip;
+	u_long cnt_to_skip;
+
+	la = &lapics[PCPU_GET(apic_id)];
+	(*la->la_timer_count)++;
+
+	skip = callout_get_next_event();
+	cnt_to_skip = lapic_timer_period * skip ;
+	lapic_timer_oneshot(cnt_to_skip);
+	la->la_skip = skip;
+	la->la_cur_skip = 0;
+
+	return;
+}
+
+static void
+lapic_handle_timer_dynamically(struct trapframe *frame)
+{
+	struct lapic *la;
+	int skip;
+	int i;
+
+	/* Send EOI first thing. */
+	lapic_eoi();
+
+#if defined(SMP) && !defined(SCHED_ULE)
+	/*
+	 * Don't do any accounting for the disabled HTT cores, since it
+	 * will provide misleading numbers for the userland.
+	 *
+	 * No locking is necessary here, since even if we loose the race
+	 * when hlt_cpus_mask changes it is not a big deal, really.
+	 *
+	 * Don't do that for ULE, since ULE doesn't consider hlt_cpus_mask
+	 * and unlike other schedulers it actually schedules threads to
+	 * those CPUs.
+	 */
+	if ((hlt_cpus_mask & (1 << PCPU_GET(cpuid))) != 0)
+		return;
+#endif
+
+	/* Look up our local APIC structure for the tick counters. */
+	la = &lapics[PCPU_GET(apic_id)];
+	(*la->la_timer_count)++;
+	critical_enter();
+
+#ifdef KDTRACE_HOOKS
+	/*
+	 * If the DTrace hooks are configured and a callback function
+	 * has been registered, then call it to process the high speed
+	 * timers.
+	 */
+	int cpu = PCPU_GET(cpuid);
+	/* i dont know this works well? */
+	if (lapic_cyclic_clock_func[cpu] != NULL)
+		(*lapic_cyclic_clock_func[cpu])(frame);
+#endif
+	/* Fire hardclock at hz. */
+	skip = la->la_skip;
+	for(i = 0; i < skip; i++){
+		la->la_hard_ticks += hz;
+		if (la->la_hard_ticks >= lapic_timer_hz) {
+			la->la_hard_ticks -= lapic_timer_hz;
+			if (PCPU_GET(cpuid) == 0)
+				hardclock(TRAPF_USERMODE(frame), TRAPF_PC(frame));
+			else
+				hardclock_cpu(TRAPF_USERMODE(frame));
+		}
+
+		/* Fire statclock at stathz. */
+		la->la_stat_ticks += stathz;
+		if (la->la_stat_ticks >= lapic_timer_hz) {
+			la->la_stat_ticks -= lapic_timer_hz;
+			statclock(TRAPF_USERMODE(frame));
+		}
+
+		/* Fire profclock at profhz, but only when needed. */
+		la->la_prof_ticks += profhz;
+		if (la->la_prof_ticks >= lapic_timer_hz) {
+			if (profprocs != 0){
+				la->la_prof_ticks -= lapic_timer_hz;
+				profclock(TRAPF_USERMODE(frame), TRAPF_PC(frame));
+			}
+		}
+	}
+
+	set_next_timer_interrupt();
+	critical_exit();
+}
+
+void switch_to_dynticks(void)
+{
+	critical_enter();
+	timer_handler = lapic_handle_timer_dynamically;
+	set_next_timer_interrupt();
+	critical_exit();
+}
+
+void switch_to_perticks(void)
+{
+	critical_enter();
+	timer_handler = __lapic_handle_timer;
+	lapic_timer_periodic(lapic_timer_period);
+	critical_exit();
+}
