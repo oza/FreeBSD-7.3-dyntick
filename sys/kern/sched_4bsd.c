@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD: src/sys/kern/sched_4bsd.c,v 1.106.2.9.2.1 2010/02/10 00:26:2
 #include <sys/sx.h>
 #include <sys/turnstile.h>
 #include <sys/umtx.h>
+#include <sys/dynticks.h>
 #include <machine/pcb.h>
 #include <machine/smp.h>
 
@@ -1430,8 +1431,10 @@ sched_idletd(void *dummy)
 	for (;;) {
 		mtx_assert(&Giant, MA_NOTOWNED);
 
+		switch_to_dynticks();
 		while (sched_runnable() == 0)
 			cpu_idle();
+		switch_to_perticks();
 
 		mtx_lock_spin(&sched_lock);
 		mi_switch(SW_VOL, NULL);

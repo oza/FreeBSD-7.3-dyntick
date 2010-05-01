@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD: src/sys/kern/kern_timeout.c,v 1.106.2.1.4.1 2010/02/10 00:26
 #include <sys/proc.h>
 #include <sys/sleepqueue.h>
 #include <sys/sysctl.h>
+#include <sys/dynticks.h>
 
 static int avg_depth;
 SYSCTL_INT(_debug, OID_AUTO, to_avg_depth, CTLFLAG_RD, &avg_depth, 0,
@@ -704,3 +705,30 @@ adjust_timeout_calltodo(time_change)
 	return;
 }
 #endif /* APM_FIXUP_CALLTODO */
+
+int
+callout_get_next_event(void)
+{
+	struct callout *c;
+	struct callout_tailq *sc;
+	int curticks;
+	int skip = 1;
+
+	curticks = softticks;
+
+	while( skip < ncallout ) {
+		sc = &callwheel[ (curticks+skip) & callwheelmask ];
+		/* scan callout queue to get next timer event */
+		TAILQ_FOREACH( c, sc, c_links.tqe ){
+			if( c && c->c_time <= curticks + ncallout ){
+				if( c->c_time > 0 ){
+					goto out;
+				}
+			}
+		}
+		skip++;
+	}
+
+out:
+	return skip;
+}

@@ -61,6 +61,7 @@ __FBSDID("$FreeBSD: src/sys/kern/sched_ule.c,v 1.214.2.12.2.1 2010/02/10 00:26:2
 #include <sys/umtx.h>
 #include <sys/vmmeter.h>
 #include <sys/cpuset.h>
+#include <sys/dynticks.h>
 #ifdef KTRACE
 #include <sys/uio.h>
 #include <sys/ktrace.h>
@@ -2670,12 +2671,14 @@ sched_idletd(void *dummy)
 	mtx_assert(&Giant, MA_NOTOWNED);
 	/* ULE relies on preemption for idle interruption. */
 	for (;;) {
+		switch_to_dynticks();
 #ifdef SMP
 		if (tdq_idled(tdq))
 			cpu_idle();
 #else
 		cpu_idle();
 #endif
+		switch_to_perticks();
 	}
 }
 

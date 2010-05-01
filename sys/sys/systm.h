@@ -232,6 +232,7 @@ u_long	 casuword(volatile u_long *p, u_long oldval, u_long newval);
 void	realitexpire(void *);
 
 void	hardclock(int usermode, uintfptr_t pc);
+void	hardclock_dynticks(int usermode, uintfptr_t pc,int skip);
 void	hardclock_cpu(int usermode);
 void	softclock(void *);
 void	statclock(int usermode);
