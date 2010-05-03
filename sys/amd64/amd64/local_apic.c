@@ -148,8 +148,6 @@ static u_int32_t lapic_timer_divisors[] = {
 };
 
 
-static void (*timer_handler)(struct trapframe *frame);
-
 extern inthand_t IDTVEC(rsvd);
 
 volatile lapic_t *lapic;
@@ -164,8 +162,8 @@ static void	lapic_timer_periodic(u_int count);
 static void	lapic_timer_set_divisor(u_int divisor);
 static uint32_t	lvt_mode(struct lapic *la, u_int pin, uint32_t value);
 
+static struct timer_ops lapic_ops;
 static void	lapic_handle_timer_dynamically(struct trapframe *frame);
-static void	__lapic_handle_timer(struct trapframe *frame);
 
 struct pic lapic_pic = { .pic_resume = lapic_resume };
 
@@ -224,7 +222,7 @@ lapic_init(vm_paddr_t addr)
 	lapic_paddr = addr;
 	setidt(APIC_SPURIOUS_INT, IDTVEC(spuriousint), SDT_SYSIGT, SEL_KPL, 0);
 
-	timer_handler = __lapic_handle_timer;
+	register_timer_intr_handlers(&lapic_ops);
 
 	/* Perform basic initialization of the BSP's local APIC. */
 	lapic_enable();
@@ -750,12 +748,6 @@ lapic_handle_intr(int vector, struct trapframe *frame)
 
 void
 lapic_handle_timer(struct trapframe *frame)
-{
-	timer_handler(frame);
-}
-
-static void
-__lapic_handle_timer(struct trapframe *frame)
 {
 	struct lapic *la;
 
@@ -1349,7 +1341,9 @@ lapic_ipi_vectored(u_int vector, int dest)
 }
 #endif /* SMP */
 
-static void set_next_timer_interrupt(void)
+
+
+static void lapic_set_next_timer_intr(void)
 {
 	struct lapic *la;
 	int skip;
@@ -1365,6 +1359,11 @@ static void set_next_timer_interrupt(void)
 	la->la_cur_skip = 0;
 
 	return;
+}
+
+static void lapic_set_timer_periodic(void)
+{
+	lapic_timer_periodic(lapic_timer_period);
 }
 
 static void
@@ -1438,10 +1437,19 @@ lapic_handle_timer_dynamically(struct trapframe *frame)
 		}
 	}
 
-	set_next_timer_interrupt();
+	lapic_set_next_timer_intr();
 	critical_exit();
 }
 
+
+static struct timer_ops lapic_ops = {
+	.perticks_handler = lapic_handle_timer,
+	.dynticks_handler = lapic_handle_timer_dynamically,
+	.set_timer_periodic = lapic_set_timer_periodic,
+	.set_next_timer_intr = lapic_set_next_timer_intr,
+} ;
+
+#if 0
 void switch_to_dynticks(void)
 {
 	critical_enter();
@@ -1454,6 +1462,6 @@ void switch_to_perticks(void)
 {
 	critical_enter();
 	timer_handler = __lapic_handle_timer;
-	lapic_timer_periodic(lapic_timer_period);
 	critical_exit();
 }
+#endif

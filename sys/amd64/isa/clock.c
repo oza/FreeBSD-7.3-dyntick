@@ -69,6 +69,7 @@ __FBSDID("$FreeBSD: src/sys/amd64/isa/clock.c,v 1.234.2.2.6.1 2010/02/10 00:26:2
 #include <sys/sysctl.h>
 #include <sys/cons.h>
 #include <sys/power.h>
+#include <sys/dynticks.h>
 
 #include <machine/clock.h>
 #include <machine/cpu.h>
@@ -133,6 +134,8 @@ static	u_char	timer2_state;
 static	unsigned i8254_get_timecount(struct timecounter *tc);
 static	unsigned i8254_simple_get_timecount(struct timecounter *tc);
 static	void	set_timer_freq(u_int freq, int intr_freq);
+
+static struct timer_ops clk_ops;
 
 static struct timecounter i8254_timecounter = {
 	i8254_get_timecount,	/* get_timecount */
@@ -765,8 +768,14 @@ cpu_initclocks()
 	 * timecounter to user a simpler algorithm.
 	 */
 	if (!using_lapic_timer) {
+#if 0
 		intr_add_handler("clk", 0, (driver_filter_t *)clkintr, NULL, NULL,
 		    INTR_TYPE_CLK, NULL);
+#else
+		intr_add_handler("clk", 0, (driver_filter_t *)timer_intr_handler, NULL, NULL,
+		    INTR_TYPE_CLK, NULL);
+#endif
+		register_timer_intr_handlers(&clk_ops);
 		i8254_intsrc = intr_lookup_source(0);
 		if (i8254_intsrc != NULL)
 			i8254_pending =
@@ -934,5 +943,21 @@ static devclass_t attimer_devclass;
 
 DRIVER_MODULE(attimer, isa, attimer_driver, attimer_devclass, 0, 0);
 DRIVER_MODULE(attimer, acpi, attimer_driver, attimer_devclass, 0, 0);
+
+static struct timer_ops clk_ops = {
+	.ext_perticks_handler = clkintr,
+	.dynticks_handler = NULL,
+	.set_next_timer_intr = NULL,
+	.set_timer_periodic = NULL,
+};
+
+#if 0
+static struct timer_ops rtc_ops = {
+	.ext_perticks_handler = rtcintr,
+	.dynticks_handler = NULL,
+	.set_next_timer_intr = NULL,
+	.set_timer_periodic = NULL,
+};
+#endif
 
 #endif /* DEV_ISA */

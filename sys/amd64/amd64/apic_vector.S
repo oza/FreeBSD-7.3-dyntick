@@ -100,7 +100,7 @@ IDTVEC(timerint)
 	PUSH_FRAME
 	FAKE_MCOUNT(TF_RIP(%rsp))
 	movq	%rsp, %rdi
-	call	lapic_handle_timer
+	call	timer_intr_handler
 	MEXITCOUNT
 	jmp	doreti
 

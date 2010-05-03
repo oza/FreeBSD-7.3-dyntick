@@ -1,5 +1,6 @@
 #ifndef _SYS_DYNTICKS_H_
 #define _SYS_DYNTICKS_H_
+
 /*-
  * Copyright (c) 2010 Tsuyoshi OZAWA
  * All rights reserved.
@@ -26,8 +27,21 @@
  * SUCH DAMAGE.
  *
  */
+#include <sys/types.h>
+#include <machine/frame.h>
+
+struct timer_ops {
+	void (*perticks_handler)(struct trapframe *frame);
+	int (*ext_perticks_handler)(struct trapframe *frame);
+	void (*dynticks_handler)(struct trapframe *frame);
+	int (*ext_dynticks_handler)(struct trapframe *frame);
+	void (*set_timer_periodic)(void);
+	void (*set_next_timer_intr)(void);
+};
+
+void timer_intr_handler(struct trapframe *frame);
 int callout_get_next_event(void);
+void register_timer_intr_handlers(struct timer_ops *ops);
 void switch_to_dynticks(void);
 void switch_to_perticks(void);
-
 #endif /* _SYS_DYNTICKS_H_ */
