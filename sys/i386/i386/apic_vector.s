@@ -105,7 +105,7 @@ IDTVEC(timerint)
 	SET_KERNEL_SREGS
 	FAKE_MCOUNT(TF_EIP(%esp))
 	pushl	%esp
-	call	lapic_handle_timer
+	call	timer_intr_handler
 	add	$4, %esp
 	MEXITCOUNT
 	jmp	doreti
