@@ -34,21 +34,52 @@ __FBSDID("$FreeBSD: src/sys/amd64/isa/dynticks.c,v 0.1.0 2010/05/02 16:26:20 OZA
 #include <sys/systm.h>
 
 static int enable_dynticks = 0;
+static int use_ext_clksrc = 0;
 static void (*cur_handler)(struct trapframe *frame);
+static int (*cur_ext_handler)(struct trapframe *frame);
 
 static struct timer_ops *tops;
 
 void timer_intr_handler(struct trapframe *frame)
 {
+	if(!cur_handler)
+		panic("cur_handler is NULL!\n");
+
 	cur_handler(frame);
+}
+
+int ext_timer_intr_handler(struct trapframe *frame)
+{
+	if(!cur_ext_handler)
+		panic("cur_ext_handler is NULL!\n");
+
+	return cur_ext_handler(frame);
 }
 
 void register_timer_intr_handlers(struct timer_ops *ops)
 {
 	tops = ops;
-	cur_handler = ops->perticks_handler;
+
+	if (ops->perticks_handler) {
+		cur_handler = ops->perticks_handler;
+		use_ext_clksrc = 0;
+	}
 
 	if ( tops->perticks_handler && tops->dynticks_handler) {
+		enable_dynticks = 1;
+	}
+}
+
+void register_ext_timer_intr_handlers(struct timer_ops *ops)
+{
+	tops = ops;
+
+	if (tops->ext_perticks_handler) {
+		cur_ext_handler = ops->ext_perticks_handler;
+		use_ext_clksrc = 1;
+	}
+
+	if (tops->ext_perticks_handler && tops->ext_dynticks_handler) {
 		enable_dynticks = 1;
 	}
 }
@@ -56,6 +87,10 @@ void register_timer_intr_handlers(struct timer_ops *ops)
 void switch_to_dynticks(void)
 {
 	if(!enable_dynticks)
+		return;
+
+	/* TODO: swtich external clock handler */
+	if(use_ext_clksrc)
 		return;
 
 	critical_enter();
@@ -67,6 +102,10 @@ void switch_to_dynticks(void)
 void switch_to_perticks(void)
 {
 	if(!enable_dynticks)
+		return;
+
+	/* TODO: swtich external clock handler */
+	if(use_ext_clksrc)
 		return;
 
 	if(!tops->perticks_handler){

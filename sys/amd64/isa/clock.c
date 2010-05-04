@@ -768,14 +768,9 @@ cpu_initclocks()
 	 * timecounter to user a simpler algorithm.
 	 */
 	if (!using_lapic_timer) {
-#if 0
-		intr_add_handler("clk", 0, (driver_filter_t *)clkintr, NULL, NULL,
-		    INTR_TYPE_CLK, NULL);
-#else
+		register_timer_intr_handlers(&clk_ops);
 		intr_add_handler("clk", 0, (driver_filter_t *)timer_intr_handler, NULL, NULL,
 		    INTR_TYPE_CLK, NULL);
-#endif
-		register_timer_intr_handlers(&clk_ops);
 		i8254_intsrc = intr_lookup_source(0);
 		if (i8254_intsrc != NULL)
 			i8254_pending =
@@ -946,18 +941,9 @@ DRIVER_MODULE(attimer, acpi, attimer_driver, attimer_devclass, 0, 0);
 
 static struct timer_ops clk_ops = {
 	.ext_perticks_handler = clkintr,
-	.dynticks_handler = NULL,
+	.ext_dynticks_handler = NULL,
 	.set_next_timer_intr = NULL,
 	.set_timer_periodic = NULL,
 };
-
-#if 0
-static struct timer_ops rtc_ops = {
-	.ext_perticks_handler = rtcintr,
-	.dynticks_handler = NULL,
-	.set_next_timer_intr = NULL,
-	.set_timer_periodic = NULL,
-};
-#endif
 
 #endif /* DEV_ISA */

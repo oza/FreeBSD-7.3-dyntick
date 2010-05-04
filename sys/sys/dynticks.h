@@ -40,8 +40,10 @@ struct timer_ops {
 };
 
 void timer_intr_handler(struct trapframe *frame);
+int ext_timer_intr_handler(struct trapframe *frame);
 int callout_get_next_event(void);
 void register_timer_intr_handlers(struct timer_ops *ops);
+void register_ext_timer_intr_handlers(struct timer_ops *ops);
 void switch_to_dynticks(void);
 void switch_to_perticks(void);
 #endif /* _SYS_DYNTICKS_H_ */

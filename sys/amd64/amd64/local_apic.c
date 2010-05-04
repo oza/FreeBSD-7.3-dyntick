@@ -222,8 +222,6 @@ lapic_init(vm_paddr_t addr)
 	lapic_paddr = addr;
 	setidt(APIC_SPURIOUS_INT, IDTVEC(spuriousint), SDT_SYSIGT, SEL_KPL, 0);
 
-	register_timer_intr_handlers(&lapic_ops);
-
 	/* Perform basic initialization of the BSP's local APIC. */
 	lapic_enable();
 	ioint_irqs[IDT_SYSCALL - APIC_IO_INTS] = IRQ_SYSCALL;
@@ -498,6 +496,8 @@ lapic_setup_clock(void)
 		stathz = lapic_timer_hz / (lapic_timer_hz / 128);
 	profhz = lapic_timer_hz;
 	lapic_timer_period = value / lapic_timer_hz;
+
+	register_timer_intr_handlers(&lapic_ops);
 
 	/*
 	 * Start up the timer on the BSP.  The APs will kick off their
@@ -1447,21 +1447,4 @@ static struct timer_ops lapic_ops = {
 	.dynticks_handler = lapic_handle_timer_dynamically,
 	.set_timer_periodic = lapic_set_timer_periodic,
 	.set_next_timer_intr = lapic_set_next_timer_intr,
-} ;
-
-#if 0
-void switch_to_dynticks(void)
-{
-	critical_enter();
-	timer_handler = lapic_handle_timer_dynamically;
-	set_next_timer_interrupt();
-	critical_exit();
-}
-
-void switch_to_perticks(void)
-{
-	critical_enter();
-	timer_handler = __lapic_handle_timer;
-	critical_exit();
-}
-#endif
+};
